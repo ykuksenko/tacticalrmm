@@ -5,7 +5,7 @@ import psutil
 import pytz
 from cryptography import x509
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone as djangotime
 from django.views.decorators.csrf import csrf_exempt
@@ -15,7 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.decorators import monitoring_view
+from core.decorators import monitoring_view, metrics_view
 from core.utils import get_core_settings, sysd_svc_is_running, token_is_valid
 from logs.models import AuditLog
 from tacticalrmm.constants import AuditActionType, PAStatus
@@ -449,3 +449,45 @@ def status(request):
             "nginx": sysd_svc_is_running("nginx.service"),
         }
     return JsonResponse(ret, json_dumps_params={"indent": 2})
+
+@csrf_exempt
+@metrics_view
+def metrics(request):
+    from agents.models import Agent
+    from clients.models import Client, Site
+    cert_file, _ = get_certs()
+    cert_bytes = Path(cert_file).read_bytes()
+    cert = x509.load_pem_x509_certificate(cert_bytes)
+    cert_expiration = cert.not_valid_after.timestamp()
+    metrics = [
+        'trmm_buildinfo{{version="{}"}} 1'.format(settings.TRMM_VERSION),
+        'trmm_meshinfo{{version="{}"}} 1'.format(settings.MESH_VER),
+        'trmm_natsinfo{{version="{}"}} 1'.format(settings.NATS_SERVER_VER),
+        'trmm_appinfo{{version="{}"}} 1'.format(settings.APP_VER),
+        'trmm_agent{{latest_version="{}"}} 1'.format(settings.LATEST_AGENT_VER),
+        "trmm_agent_count {}".format(Agent.objects.count()),
+        "trmm_client_count {}".format(Client.objects.count()),
+        "trmm_site_count {}".format(Site.objects.count()),
+        "trmm_cert_expiration_time {}".format(cert_expiration),
+    ]
+
+    if settings.DOCKER_BUILD:
+        metrics.append("trmm_docker_build 1")
+    else:
+        metrics.append("trmm_docker_build 0")
+        services = {
+            "django": "rmm.service",
+            "mesh": "meshcentral.service",
+            "daphne": "daphne.service",
+            "celery": "celery.service",
+            "celerybeat": "celerybeat.service",
+            "redis": "redis-server.service",
+            "postgres": "postgresql.service",
+            "mongo": "mongod.service",
+            "nats": "nats.service",
+            "nats-api": "nats-api.service",
+            "nginx": "nginx.service",
+        }
+        for k,v in services.items():
+            metrics.append('trmm_service{{name="{}",unit="{}"}} {}'.format(k,v,int(sysd_svc_is_running(v))))
+    return HttpResponse(("\n").join(metrics),content_type="text/plain")

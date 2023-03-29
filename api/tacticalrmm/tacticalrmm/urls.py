@@ -5,6 +5,7 @@ from knox import views as knox_views
 from accounts.views import CheckCreds, LoginView
 from agents.consumers import SendCMD
 from core.consumers import DashInfo
+from core import views as core_views
 
 
 class AgentIDConverter:
@@ -32,6 +33,7 @@ urlpatterns = [
     path("winupdate/", include("winupdate.urls")),
     path("software/", include("software.urls")),
     path("core/", include("core.urls")),
+    path("metrics", core_views.metrics),
     path("automation/", include("automation.urls")),
     path("tasks/", include("autotasks.urls")),
     path("logs/", include("logs.urls")),

@@ -29,3 +29,24 @@ def monitoring_view(function):
     wrap.__doc__ = function.__doc__
     wrap.__name__ = function.__name__
     return wrap
+
+def metrics_view(function):
+    def wrap(request, *args, **kwargs):
+        if request.method != "GET":
+            return HttpResponse("Invalid request type\n", status=400)
+
+        if "Authorization" not in request.headers:
+            return HttpResponse("Missing 'Authorization' header\n", status=400)
+
+        token = getattr(settings, "MON_TOKEN", "")
+        if not token:
+            return HttpResponse("Missing token config\n", status=401)
+
+        if request.headers["Authorization"] != 'Bearer ' + token:
+            return HttpResponse("Not authenticated\n", status=401)
+
+        return function(request, *args, **kwargs)
+
+    wrap.__doc__ = function.__doc__
+    wrap.__name__ = function.__name__
+    return wrap
